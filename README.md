@@ -190,6 +190,7 @@ simple-gis-project/
 - Shapely - Geometric operations
 - GeoAlchemy2 - Spatial database integration
 - Alembic - Database migrations
+- pytest - Testing framework
 
 ## License
 
