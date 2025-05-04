@@ -18,7 +18,7 @@ A FastAPI-based Geographic Information System (GIS) application that allows you 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Python 3.8+ (for local development)
+- Python 3.13+ (for local development)
 - Git
 
 ## Getting Started
