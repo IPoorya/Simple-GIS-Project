@@ -1,15 +1,19 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, close_all_sessions
 from sqlalchemy.pool import StaticPool
 import os
 
 from app.main import app
 from app.database import base, get_db
 from app import models
-from tests.test_config import TEST_DATABASE_URL
+from tests.test_config import TEST_DATABASE_URL, TEST_DB_NAME
+
+# Create a connection to the default database to create the test database
+default_db_url = TEST_DATABASE_URL.rsplit('/', 1)[0] + '/postgres'
+default_engine = create_engine(default_db_url)
 
 # Test database setup
 engine = create_engine(TEST_DATABASE_URL)
@@ -28,11 +32,52 @@ app.dependency_overrides[get_db] = override_get_db
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
     """Create test database and tables"""
+    # Drop test database if it exists and create a new one
+    with default_engine.connect() as conn:
+        conn.execute(text("COMMIT"))  # Close any open transaction
+        # Terminate all connections to the test database
+        conn.execute(text(f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{TEST_DB_NAME}'
+            AND pid <> pg_backend_pid();
+        """))
+        conn.execute(text("COMMIT"))
+        # Drop the database if it exists
+        conn.execute(text(f"DROP DATABASE IF EXISTS {TEST_DB_NAME}"))
+        conn.execute(text("COMMIT"))
+        # Create a new database
+        conn.execute(text(f"CREATE DATABASE {TEST_DB_NAME}"))
+    
+    # Connect to the new database and enable PostGIS
+    test_engine = create_engine(TEST_DATABASE_URL)
+    with test_engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        conn.execute(text("COMMIT"))
+    
     # Create all tables
     base.metadata.create_all(bind=engine)
     yield
-    # Drop all tables after tests
-    base.metadata.drop_all(bind=engine)
+    # Clean up
+    close_all_sessions()  # Close all SQLAlchemy sessions
+    engine.dispose()  # Dispose of the engine
+    test_engine.dispose()  # Dispose of the test engine
+    
+    # Drop all tables and database
+    with default_engine.connect() as conn:
+        conn.execute(text("COMMIT"))
+        # Terminate all connections again
+        conn.execute(text(f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{TEST_DB_NAME}'
+            AND pid <> pg_backend_pid();
+        """))
+        conn.execute(text("COMMIT"))
+        conn.execute(text(f"DROP DATABASE IF EXISTS {TEST_DB_NAME}"))
+        conn.execute(text("COMMIT"))
+    
+    default_engine.dispose()  # Dispose of the default engine
 
 @pytest.fixture
 def client():
