@@ -189,6 +189,7 @@ simple-gis-project/
 - GeoJSON - Geographic data format
 - Shapely - Geometric operations
 - GeoAlchemy2 - Spatial database integration
+- Alembic - Database migrations
 
 ## License
 
